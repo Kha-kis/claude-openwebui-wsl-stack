@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OPENWEBUI_BASE_URL="${OPENWEBUI_BASE_URL:-http://localhost:9090}"
+API_BASE="${OPENWEBUI_BASE_URL%/}/api"
+MODELS_URL="$API_BASE/models"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required. Install jq and retry." >&2
+  exit 1
+fi
+
+if [[ -z "${OPENWEBUI_API_KEY:-}" ]]; then
+  echo "Error: OPENWEBUI_API_KEY is not set." >&2
+  echo "Set it before running this script, for example:" >&2
+  echo "  export OPENWEBUI_API_KEY='paste-your-openwebui-token-here'" >&2
+  exit 1
+fi
+
+response="$(curl -fsS -H "Authorization: Bearer $OPENWEBUI_API_KEY" "$MODELS_URL")"
+mapfile -t models < <(printf '%s' "$response" | jq -r '.data[].id' | sed '/^null$/d' | sed '/^$/d')
+
+if [[ ${#models[@]} -eq 0 ]]; then
+  echo "Error: no models returned from $MODELS_URL" >&2
+  echo "Check OPENWEBUI_BASE_URL and OPENWEBUI_API_KEY." >&2
+  exit 1
+fi
+
+echo "Open WebUI URL: $OPENWEBUI_BASE_URL"
+echo "Select a model:"
+select model in "${models[@]}"; do
+  if [[ -n "${model:-}" ]]; then
+    break
+  fi
+  echo "Invalid selection. Try again." >&2
+done
+
+env \
+  ANTHROPIC_BASE_URL="$API_BASE" \
+  ANTHROPIC_AUTH_TOKEN="$OPENWEBUI_API_KEY" \
+  ANTHROPIC_API_KEY="" \
+  claude --model "$model" "$@"
